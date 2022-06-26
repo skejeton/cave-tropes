@@ -96,10 +96,12 @@ void frame(void)
     ImGui::SetNextWindowSize({float(width), float(height)});
     ImGui::SetNextWindowPos({0, 0});
     ImGui::Begin("Stats", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground);
+        ImGui::PushStyleColor(ImGuiCol_Button, 0xAA202222);
         ImGui::GetItemRectMin();
         char buf[256];
         snprintf(buf, 256, "FPS: %.1f\n", ImGui::GetIO().Framerate);
         ImGui::Button(buf);
+        ImGui::PopStyleColor();
     ImGui::End();
 
     ImGui::Begin("Change background color");
@@ -109,9 +111,18 @@ void frame(void)
         ImGui::ColorEdit3("Background color", state.bg_color);
         ImGui::InputTextMultiline("Version", state.window_title, 256-(state.window_title-state.window_title_base));
         ImGui::DragFloat2("Position", state.offset.Elements, 0.1, 0.0, 0.0, "%.3f");
+        static bool show_demo_window = false;
+        ImGui::Checkbox("Show demo window", &show_demo_window);
+        if (show_demo_window) {
+            ImGui::ShowDemoWindow();
+        }
+        static bool show_debug_window = false;
+        ImGui::Checkbox("Show debug window", &show_debug_window);
+        if (show_debug_window) {
+            ImGui::ShowMetricsWindow();
+        }  
     ImGui::End();
-    ImGui::ShowDemoWindow();
-    
+
     vs_params_t params = {};
     memcpy(params.offset, state.offset.Elements, sizeof state.offset.Elements);
     auto params_range = SG_RANGE(params);
