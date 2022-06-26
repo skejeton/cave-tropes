@@ -94,6 +94,9 @@ void frame(void)
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
     // DRAW IMGUI STUFF
     ImGui::Begin("Change background color");
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetWindowSize({256, 256});
+        }
         ImGui::ColorEdit3("Background color", state.bg_color);
         ImGui::InputTextMultiline("Version", state.window_title, 256-(state.window_title-state.window_title_base));
     ImGui::End();
