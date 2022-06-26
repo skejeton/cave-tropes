@@ -1,41 +1,42 @@
-CXX=clang++
-AR=llvm-ar
-SHDC=./lib/sokol-tools-bin/bin/linux/sokol-shdc
+CXX?=clang++
+AR?=llvm-ar
+SHDC?=./lib/sokol-tools-bin/bin/linux/sokol-shdc
+OUTPUT?=bin/cave_tropes
+IMGUI_OUTPUT?=bin/imgui.a
+SYS_LIBS?=-lGL -lXi -lXcursor -lasound -ldl -lm -lpthread -lX11
 
 SHARED_CFLAGS=-O0 --std=c++17
 
 SRC_CFLAGS=-I. -MD
-SRC_LIBS=-lGL -lXi -lXcursor -lasound -ldl -lm -lpthread -lX11 bin/imgui.a
+SRC_LIBS=$(SYS_LIBS) $(IMGUI_OUTPUT)
 SRC_UNITS=$(wildcard src/**.cpp)
 SRC_HEADERS=$(wildcard src/**.h src/**.inl)
 SRC_OBJECTS=$(SRC_UNITS:.cpp=.o)
 SRC_DEPS=$(SRC_OBJECTS:.o=.d)
 
-all: bin/cave_tropes
+all: $(OUTPUT)
 
 run: all
-	bin/cave_tropes
+	$(OUTPUT)
 
-bin/imgui.a:
+$(IMGUI_OUTPUT):
 	$(CXX) $(SHARED_CFLAGS) lib/imgui/*.cpp -c 
-	$(AR) -rs bin/imgui.a *.o
+	$(AR) rcs -o $(IMGUI_OUTPUT) *.o
 	rm *.o
 
 bin/shaders.h: res/shaders.glsl
-	$(call log_progress SHDC res/shaders.glsl)
 	$(SHDC) -i res/shaders.glsl -o bin/shaders.h --slang glsl330
 
 %.o: %.cpp
-	$(call log_progress CC $<)
 	$(CXX) $(SHARED_CFLAGS) $(SRC_CFLAGS) -c $< -o $@
 
-bin/cave_tropes: bin/imgui.a bin/shaders.h $(SRC_OBJECTS)
-	$(CXX) $(SHARED_CFLAGS) $(SRC_CFLAGS) $(SRC_OBJECTS) $(SRC_LIBS) -o bin/cave_tropes
+$(OUTPUT): $(IMGUI_OUTPUT) bin/shaders.h $(SRC_OBJECTS)
+	$(CXX) $(SHARED_CFLAGS) $(SRC_CFLAGS) $(SRC_OBJECTS) $(SRC_LIBS) -o $(OUTPUT)
 
 clean:
-	rm -f bin/cave_tropes
+	rm -f $(OUTPUT)
 	rm -f bin/shaders.h
-	rm -f bin/imgui.a
+	rm -f $(IMGUI_OUTPUT)
 	rm -f $(SRC_OBJECTS)
 	rm -f $(SRC_DEPS)
 
