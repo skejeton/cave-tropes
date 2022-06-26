@@ -142,9 +142,9 @@ void set_bgcolor(float color[3])
     state.pass_action.colors[0].value = {color[0], color[1], color[2], 1.0};
 }
 
-void draw_cube(int win_width, int win_height)
+void draw_cube(hmm_vec3 pos)
 {
-    hmm_mat4 m_m = HMM_Translate({0, 0, 0});
+    hmm_mat4 m_m = HMM_Translate(pos);
     hmm_mat4 mvp = state.camera.get_vp() * m_m;
 
     vs_params_t params = {};
@@ -152,7 +152,6 @@ void draw_cube(int win_width, int win_height)
     auto params_range = SG_RANGE(params);
 
     // DRAW USER STUFF
-    sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
     sg_apply_bindings(&state.bind);
     sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
@@ -171,7 +170,9 @@ void frame(void)
     if (state.input.mouse_states[SAPP_MOUSEBUTTON_LEFT].pressed) {
         sapp_lock_mouse(true);
     }
-    state.input.handle_camera(&state.camera);
+    if (sapp_mouse_locked()) {
+        state.input.handle_camera(&state.camera);
+    }
     state.camera.set_aspect(float(width)/float(height));
     // Reset imgui rotations (HACK?)
     state.camera.rotate({0, 0});
@@ -180,40 +181,52 @@ void frame(void)
 
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
     // DRAW IMGUI STUFF
-    /*
-    ImGui::SetNextWindowSize({float(width), float(height)});
-    ImGui::SetNextWindowPos({0, 0});
-    ImGui::Begin("Stats", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground);
-        ImGui::PushStyleColor(ImGuiCol_Button, 0xAA202222);
-        ImGui::GetItemRectMin();
-        char buf[256];
-        snprintf(buf, 256, "FPS: %.1f\n", ImGui::GetIO().Framerate);
-        ImGui::Button(buf);
-        ImGui::PopStyleColor();
-    ImGui::End();
-    */
 
-    ImGui::Begin("Change background color");
-        if (ImGui::IsWindowAppearing()) {
-            ImGui::SetWindowSize({256, 256});
-        }
-        ImGui::ColorEdit3("Background color", state.bg_color);
-        ImGui::InputTextMultiline("Version", state.window_title, 256-(state.window_title-state.window_title_base));
-        ImGui::DragFloat2("Rotation", state.camera.yaw_pitch.Elements);
+    static bool show_ui = false;
+    ImGui::BeginMainMenuBar();
+        ImGui::Checkbox("Show UI", &show_ui);
+    ImGui::EndMainMenuBar();
 
-        static bool show_demo_window = false;
-        ImGui::Checkbox("Show demo window", &show_demo_window);
-        if (show_demo_window) {
-            ImGui::ShowDemoWindow();
-        }
-        static bool show_debug_window = false;
-        ImGui::Checkbox("Show debug window", &show_debug_window);
-        if (show_debug_window) {
-            ImGui::ShowMetricsWindow();
-        }  
-    ImGui::End();
+    if (show_ui) {
+        ImGui::SetNextWindowSize({float(width), float(height)});
+        ImGui::SetNextWindowPos({0, 16});
+        ImGui::Begin("Stats", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground);
+            ImGui::PushStyleColor(ImGuiCol_Button, 0xAA202222);
+            ImGui::GetItemRectMin();
+            char buf[256];
+            snprintf(buf, 256, "FPS: %.1f\n", ImGui::GetIO().Framerate);
+            ImGui::Button(buf);
+            ImGui::PopStyleColor();
+        ImGui::End();
 
-    draw_cube(width, height);
+        ImGui::Begin("Debug Stuff");
+            ImGui::ColorEdit3("Background color", state.bg_color);
+            ImGui::InputText("Version", state.window_title, 256-(state.window_title-state.window_title_base));
+            ImGui::DragFloat2("Rotation", state.camera.yaw_pitch.Elements);
+
+            static bool show_demo_window = false;
+            ImGui::Checkbox("Show demo window", &show_demo_window);
+            if (show_demo_window) {
+                ImGui::ShowDemoWindow();
+            }
+            static bool show_debug_window = false;
+            ImGui::Checkbox("Show debug window", &show_debug_window);
+            if (show_debug_window) {
+                ImGui::ShowMetricsWindow();
+            }  
+        ImGui::End();
+    }
+
+    sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+    draw_cube({-2, 0, 5});
+    draw_cube({-1, 0, 5});
+    draw_cube({0, 0, 5});
+    draw_cube({1, 0, 5});
+    draw_cube({2, 0, 5});
+    draw_cube({-3, 1, 5});
+    draw_cube({3, 1, 5});
+    draw_cube({-1, 2, 5});
+    draw_cube({1, 2, 5});
 
     simgui_render();
     sg_end_pass();
