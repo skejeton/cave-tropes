@@ -1,24 +1,28 @@
 @vs vs
-in vec4 position;
-in vec4 color0;
-out vec4 color;
+in vec3 position;
+in vec3 normal;
+in vec2 uv;
+out vec2 fs_uv;
+out vec3 fs_normal;
 uniform vs_params {
-    vec2 offset;
+    mat4 mvp;
 };
 
 void main() {
-    gl_Position = position + vec4(offset, 0, 0);
-    color = color0;
+    gl_Position = mvp * vec4(position, 1.0);
+    fs_uv = uv;
+    fs_normal = normal;
 }
 @end
 
 @fs fs
-in vec4 color;
+in vec2 fs_uv;
+in vec3 fs_normal;
 out vec4 frag_color;
 
 void main() {
-    frag_color = color;
+    frag_color = vec4(fs_normal/2.0+vec3(0.5, 0.5, 0.5), 1.0);
 }
 @end
 
-@program triangle vs fs
+@program cube vs fs
