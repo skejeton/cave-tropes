@@ -1,3 +1,4 @@
+// SPDX: MIT
 #define SOKOL_IMPL
 #if defined(_MSC_VER)
 #define SOKOL_D3D11
@@ -16,6 +17,7 @@
 #include "lib/sokol/sokol_gfx.h"
 #include "lib/sokol/sokol_glue.h"
 #include "lib/sokol/util/sokol_imgui.h"
+#include "lib/HandmadeMath.h"
 extern "C" {
 #include "bin/shaders.h"
 }
@@ -28,6 +30,7 @@ static struct {
     float bg_color[3];
     char window_title_base[256];
     char *window_title;
+    hmm_vec2 offset;
 } state;
 
 static void init(void)
@@ -50,7 +53,6 @@ static void init(void)
         -0.5f, -0.5f, 0.5f,     0.0f, 0.0f, 1.0f, 1.0f,
         -0.5f,  0.5f, 0.5f,     1.0f, 0.0f, 0.0f, 1.0f,
     };
-
 
     sg_buffer_desc buffer_desc = {};
     buffer_desc.data = SG_RANGE(vertices);
@@ -89,23 +91,37 @@ void frame(void)
     set_bgcolor(state.bg_color);
     sapp_set_window_title(state.window_title_base);
 
-
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
     // DRAW IMGUI STUFF
+    ImGui::SetNextWindowSize({float(width), float(height)});
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::Begin("Stats", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground);
+        ImGui::GetItemRectMin();
+        char buf[256];
+        snprintf(buf, 256, "FPS: %.1f\n", ImGui::GetIO().Framerate);
+        ImGui::Button(buf);
+    ImGui::End();
+
     ImGui::Begin("Change background color");
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetWindowSize({256, 256});
         }
         ImGui::ColorEdit3("Background color", state.bg_color);
         ImGui::InputTextMultiline("Version", state.window_title, 256-(state.window_title-state.window_title_base));
+        ImGui::DragFloat2("Position", state.offset.Elements, 0.1, 0.0, 0.0, "%.3f");
     ImGui::End();
     ImGui::ShowDemoWindow();
-
+    
+    vs_params_t params = {};
+    memcpy(params.offset, state.offset.Elements, sizeof state.offset.Elements);
+    auto params_range = SG_RANGE(params);
 
     // DRAW USER STUFF
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
     sg_apply_bindings(&state.bind);
+    sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
+
     sg_draw(0, 6, 1);
 
     simgui_render();
