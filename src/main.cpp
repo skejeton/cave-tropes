@@ -52,10 +52,9 @@ static void init(void)
     };
 
 
-    sg_buffer_desc buffer_desc = {
-        .data = SG_RANGE(vertices),
-        .label = "triangle-vertices"
-    };
+    sg_buffer_desc buffer_desc = {};
+    buffer_desc.data = SG_RANGE(vertices);
+    buffer_desc.label = "triangle-vertices";
 
     state.bind.vertex_buffers[0] = sg_make_buffer(&buffer_desc);
 
@@ -130,15 +129,14 @@ void cleanup(void)
 sapp_desc sokol_main(int argc, char* argv[])
 {
     (void)argc; (void)argv;
-    sapp_desc app_desc = {
-        .init_cb = init,
-        .frame_cb = frame,
-        .cleanup_cb = cleanup,
-        .width = 640,
-        .height = 480,
-        .gl_force_gles2 = true,
-    };
+    sapp_desc app_desc = {};
 
+    app_desc.init_cb = init;
+    app_desc.frame_cb = frame;
+    app_desc.cleanup_cb = cleanup;
+    app_desc.width = 640;
+    app_desc.height = 480;
+    app_desc.gl_force_gles2 = true;
     app_desc.event_cb = event;
     app_desc.window_title = "Cave Tropes 0.0.0";
 
