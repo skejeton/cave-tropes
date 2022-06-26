@@ -22,15 +22,24 @@ extern "C" {
 #include "bin/shaders.h"
 }
 
+#undef SOKOL_APP_IMPL
+#undef SOKOL_IMPL
+
+//--
+#include "camera.h"
+#include "input.h"
+
 /* application state */
 static struct {
     sg_pipeline pip;
     sg_bindings bind;
     sg_pass_action pass_action;
     float bg_color[3];
-    hmm_vec3 rotation;
     char window_title_base[256];
     char *window_title;
+
+    ::camera camera;
+    ::input input;
 } state;
 
 static void init(void)
@@ -124,6 +133,8 @@ static void init(void)
     /* a pass action to framebuffer to black */
     state.pass_action = {};
     state.pass_action.colors[0] = { .action=SG_ACTION_CLEAR, .value={0.0f, 0.0f, 0.0f, 1.0f } };
+
+    state.camera = camera::init(45);
 }
 
 void set_bgcolor(float color[3])
@@ -133,11 +144,8 @@ void set_bgcolor(float color[3])
 
 void draw_cube(int win_width, int win_height)
 {
-    hmm_mat4 m_m = HMM_Translate({0, 0, 0}) * HMM_Rotate(state.rotation.X, {1, 0, 0}) * HMM_Rotate(state.rotation.Y, {0, 1, 0}) * HMM_Rotate(state.rotation.Z, {0, 0, 1});
-    hmm_mat4 v_m = HMM_LookAt({0.0f, 1.5f, 6.0f}, {0, 0, 0}, {0, 1, 0});
-    hmm_mat4 p_m = HMM_Perspective(45.0f, float(win_width)/float(win_height), 0.01, 1000);
-    hmm_mat4 vp = p_m * v_m;
-    hmm_mat4 mvp = vp * m_m;
+    hmm_mat4 m_m = HMM_Translate({0, 0, 0});
+    hmm_mat4 mvp = state.camera.get_vp() * m_m;
 
     vs_params_t params = {};
     memcpy(params.mvp, mvp.Elements, sizeof mvp.Elements);
@@ -156,11 +164,23 @@ void frame(void)
 {
     const int width = sapp_width();
     const int height = sapp_height();
+
+    if (state.input.key_states[SAPP_KEYCODE_ESCAPE].pressed) {
+        sapp_lock_mouse(false);
+    }
+    if (state.input.mouse_states[SAPP_MOUSEBUTTON_LEFT].pressed) {
+        sapp_lock_mouse(true);
+    }
+    state.input.handle_camera(&state.camera);
+    state.camera.set_aspect(float(width)/float(height));
+    // Reset imgui rotations (HACK?)
+    state.camera.rotate({0, 0});
     set_bgcolor(state.bg_color);
     sapp_set_window_title(state.window_title_base);
 
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
     // DRAW IMGUI STUFF
+    /*
     ImGui::SetNextWindowSize({float(width), float(height)});
     ImGui::SetNextWindowPos({0, 0});
     ImGui::Begin("Stats", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground);
@@ -171,6 +191,7 @@ void frame(void)
         ImGui::Button(buf);
         ImGui::PopStyleColor();
     ImGui::End();
+    */
 
     ImGui::Begin("Change background color");
         if (ImGui::IsWindowAppearing()) {
@@ -178,7 +199,7 @@ void frame(void)
         }
         ImGui::ColorEdit3("Background color", state.bg_color);
         ImGui::InputTextMultiline("Version", state.window_title, 256-(state.window_title-state.window_title_base));
-        ImGui::DragFloat3("Rotation", state.rotation.Elements);
+        ImGui::DragFloat2("Rotation", state.camera.yaw_pitch.Elements);
 
         static bool show_demo_window = false;
         ImGui::Checkbox("Show demo window", &show_demo_window);
@@ -197,6 +218,7 @@ void frame(void)
     simgui_render();
     sg_end_pass();
     sg_commit();
+    state.input.update();
 }
 
 static void event(const sapp_event *event)
@@ -204,6 +226,8 @@ static void event(const sapp_event *event)
     if (simgui_handle_event(event)) {
         return;
     }
+    state.input.pass_event(event);
+
 }
 
 void cleanup(void)
