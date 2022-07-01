@@ -168,6 +168,7 @@ void frame(void)
         sapp_lock_mouse(false);
     }
     if (state.input.mouse_states[SAPP_MOUSEBUTTON_LEFT].pressed) {
+        printf("LOCK!\n");
         sapp_lock_mouse(true);
     }
     if (sapp_mouse_locked()) {

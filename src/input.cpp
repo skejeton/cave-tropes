@@ -37,7 +37,8 @@ void input::pass_event(const sapp_event *event)
             break;
         case SAPP_EVENTTYPE_MOUSE_MOVE:
             this->mouse_pos = {event->mouse_x, event->mouse_y};
-            this->mouse_delta = {event->mouse_dx, event->mouse_dy};
+            this->mouse_delta += {event->mouse_dx, event->mouse_dy};
+            printf("Mouse delta %g %g\n", this->mouse_delta.X, this->mouse_delta.Y);
             break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:
             if (event->mouse_button >= 0 && event->mouse_button < 3) {
