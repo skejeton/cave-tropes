@@ -15,7 +15,7 @@ struct camera {
     void rotate(hmm_vec2 by);
     void move(float forward, float sideways, float upward);
 
-    hmm_mat4 get_vp();
+    hmm_mat4 get_vp() const;
 };
 
 #endif

@@ -54,7 +54,7 @@ void camera::move(float forward, float sideways, float upward)
     this->vp = make_vp(this);
 }
 
-hmm_mat4 camera::get_vp()
+hmm_mat4 camera::get_vp() const
 {
     return this->vp;
 }

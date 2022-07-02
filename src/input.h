@@ -18,7 +18,6 @@ struct input {
     input init();
     void update(); // called every frame
     void pass_event(const sapp_event *event);
-    void handle_camera(camera *camera);
 };
 
 #endif

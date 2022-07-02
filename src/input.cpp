@@ -38,7 +38,6 @@ void input::pass_event(const sapp_event *event)
         case SAPP_EVENTTYPE_MOUSE_MOVE:
             this->mouse_pos = {event->mouse_x, event->mouse_y};
             this->mouse_delta += {event->mouse_dx, event->mouse_dy};
-            printf("Mouse delta %g %g\n", this->mouse_delta.X, this->mouse_delta.Y);
             break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:
             if (event->mouse_button >= 0 && event->mouse_button < 3) {
@@ -55,34 +54,5 @@ void input::pass_event(const sapp_event *event)
             break;
         default:
             break;
-    }
-}
-
-void input::handle_camera(camera *camera)
-{
-    camera->rotate(hmm_vec2{this->mouse_delta.Y, -this->mouse_delta.X});
-
-    if (this->key_states[SAPP_KEYCODE_LEFT_SHIFT].held) {
-        camera->move(0, 0, -0.1);
-    }
-
-    if (this->key_states[SAPP_KEYCODE_SPACE].held) {
-        camera->move(0, 0, 0.1);
-    }
-
-    if (this->key_states[SAPP_KEYCODE_W].held) {
-        camera->move(0.1, 0, 0);
-    }
-
-    if (this->key_states[SAPP_KEYCODE_S].held) {
-        camera->move(-0.1, 0, 0);
-    }
-
-    if (this->key_states[SAPP_KEYCODE_A].held) {
-        camera->move(0, 0.1, 0);
-    }
-
-    if (this->key_states[SAPP_KEYCODE_D].held) {
-        camera->move(0, -0.1, 0);
     }
 }
