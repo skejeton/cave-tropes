@@ -1,4 +1,5 @@
 // SPDX: MIT
+#include <cstdint>
 #include <cstdlib>
 #define SOKOL_IMPL
 #if defined(_MSC_VER)
@@ -118,7 +119,7 @@ void init_render_pipeline(::render *render)
     pipeline_desc.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     pipeline_desc.cull_mode = SG_CULLMODE_FRONT;
     if (render->properties.wireframe_mode) {
-        pipeline_desc.primitive_type = SG_PRIMITIVETYPE_LINES;
+        pipeline_desc.primitive_type = SG_PRIMITIVETYPE_LINE_STRIP;
     } else {
         pipeline_desc.primitive_type = SG_PRIMITIVETYPE_TRIANGLES;
     }
@@ -194,8 +195,20 @@ void set_bgcolor(::render *render, float color[3])
     render->pass_action.colors[0].value = sg_color{color[0], color[1], color[2], 1.0};
 }
 
-void draw_cube(::render *render, hmm_vec3 pos)
+// Flags for choosing sides of cube to display
+typedef uint8_t cube_side_flags;
+#define CUBE_SIDE_FLAG_PX 0b1
+#define CUBE_SIDE_FLAG_NX 0b10
+#define CUBE_SIDE_FLAG_PY 0b100
+#define CUBE_SIDE_FLAG_NY 0b1000
+#define CUBE_SIDE_FLAG_PZ 0b10000
+#define CUBE_SIDE_FLAG_NZ 0b100000
+
+void draw_cube(::render *render, hmm_vec3 pos, cube_side_flags flags)
 {
+    if (flags == 0) {
+        return;
+    }
     hmm_mat4 m_m = HMM_Translate(pos);
     hmm_mat4 mvp = render->camera.get_vp() * m_m;
 
@@ -208,7 +221,25 @@ void draw_cube(::render *render, hmm_vec3 pos)
     sg_apply_bindings(&render->bind);
     sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
 
-    sg_draw(0, 36, 1);
+    // FIXME(skejeton): this is a shit way to draw it
+    if (flags & CUBE_SIDE_FLAG_PY) {
+        sg_draw(0, 6, 1);
+    }
+    if (flags & CUBE_SIDE_FLAG_NX) {
+        sg_draw(6, 6, 1);
+    }
+    if (flags & CUBE_SIDE_FLAG_PX) {
+        sg_draw(12, 6, 1);
+    }
+    if (flags & CUBE_SIDE_FLAG_PZ) {
+        sg_draw(18, 6, 1);
+    }
+    if (flags & CUBE_SIDE_FLAG_NZ) {
+        sg_draw(24, 6, 1);
+    }
+    if (flags & CUBE_SIDE_FLAG_NY) {
+        sg_draw(30, 6, 1);
+    }
 }
 
 void handle_camera_input(::render *render, ::input const &input)
@@ -243,14 +274,17 @@ void handle_camera_input(::render *render, ::input const &input)
     }
 }
 
+#define WORLD_SIZE 32
+
 ///////////
 // World 
 struct world {
     //        x   y   z
-    bool data[32][32][32]; // world chunk 0, true = block set, false = no block
+    bool data[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE]; // world chunk 0, true = block set, false = no block
+    cube_side_flags mesh_map[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE];
 };
 
-#define WORLD_ITER(x, y, z) for (int x = 0; x < 32; ++x) for (int y = 0; y < 32; ++y) for (int z = 0; z < 32; ++z)
+#define WORLD_ITER(x, y, z) for (int x = 0; x < WORLD_SIZE; ++x) for (int y = 0; y < WORLD_SIZE; ++y) for (int z = 0; z < WORLD_SIZE; ++z)
 
 ///////////
 // State
@@ -284,6 +318,39 @@ void handle_camera(::state *state)
     state->render.camera.rotate({0, 0});
 }
 
+static bool check_block(::world const *world, int x, int y, int z)
+{
+    if (x < 0 || y < 0 || z < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE || z >= WORLD_SIZE) {
+        return false;
+    }
+
+    return world->data[x][y][z];
+}
+
+
+static cube_side_flags get_side_flags(::world const *world, int x, int y, int z)
+{
+    cube_side_flags output = 0;
+    struct {
+        int x, y, z;
+    } const static neighbours[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+
+    int i = 0;
+    for (auto neighbor : neighbours) {
+        output = output | ((cube_side_flags)(!check_block(world, x+neighbor.x, y+neighbor.y, z+neighbor.z)) << i);
+        i++;
+    }
+
+    return output;
+}
+
+void generage_world_mesh_map(::world *world) 
+{
+    WORLD_ITER(x, y, z) {
+        world->mesh_map[x][y][z] = get_side_flags(world, x, y, z);
+    }
+}
+
 ::world generate_world()
 {
     ::world output = {};
@@ -295,14 +362,16 @@ void handle_camera(::state *state)
         }
     }
 
+    generage_world_mesh_map(&output);
     return output;
 }
+
 
 void draw_world(::render *render, ::world const &world)
 {
     WORLD_ITER(x, y, z) {
         if (world.data[x][y][z]) {
-            draw_cube(render, hmm_vec3{float(x), float(y), float(z)});
+            draw_cube(render, hmm_vec3{float(x), float(y), float(z)}, world.mesh_map[x][y][z]);
         }
     }
 }
