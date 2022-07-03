@@ -34,36 +34,37 @@ extern "C" {
 
 float cube_vertices[] = {
     // pos                normal    uv
+    // +y
     -0.5, 0.5, -0.5,      0, 1, 0,  0, 1,
     -0.5, 0.5, 0.5,       0, 1, 0,  1, 1,
     0.5, 0.5, 0.5,        0, 1, 0,  1, 0,
     0.5, 0.5, -0.5,       0, 1, 0,  0, 0,
 
-    
+    // -x    
     -0.5, 0.5, 0.5,       -1, 0, 0, 0, 0,
     -0.5, -0.5, 0.5,      -1, 0, 0, 0, 1,
     -0.5, -0.5, -0.5,     -1, 0, 0, 1, 1,
     -0.5, 0.5, -0.5,      -1, 0, 0, 1, 0,
 
-    
+    // +x
     0.5, 0.5, 0.5,        1, 0, 0, 0, 0,
     0.5, -0.5, 0.5,       1, 0, 0, 0, 1,
     0.5, -0.5, -0.5,      1, 0, 0, 1, 1,
     0.5, 0.5, -0.5,       1, 0, 0, 1, 0,
 
-    
+    // -z
     0.5, 0.5, 0.5,        0, 0, -1, 0, 0,
     0.5, -0.5, 0.5,       0, 0, -1, 0, 1,
     -0.5, -0.5, 0.5,      0, 0, -1, 1, 1,
     -0.5, 0.5, 0.5,       0, 0, -1, 1, 0,
 
-    
+    // +z
     0.5, 0.5, -0.5,       0, 0, 1, 0, 0,
     0.5, -0.5, -0.5,      0, 0, 1, 0, 1,
     -0.5, -0.5, -0.5,     0, 0, 1, 1, 1,
     -0.5, 0.5, -0.5,      0, 0, 1, 1, 0,
 
-    
+    // -y    
     -0.5, -0.5, -0.5,     0, -1, 0, 0, 1,
     -0.5, -0.5, 0.5,      0, -1, 0, 1, 1,
     0.5, -0.5, 0.5,       0, -1, 0, 1, 0,
@@ -71,16 +72,17 @@ float cube_vertices[] = {
 };
 
 uint16_t cube_indices[] = {
-    0, 1, 2,  0, 2, 3,
-    6, 5, 4,  7, 6, 4,
-    8, 9, 10,  8, 10, 11,
-    14, 13, 12,  15, 14, 12,
-    16, 17, 18,  16, 18, 19,
-    22, 21, 20,  23, 22, 20
+    0, 1, 2,  0, 2, 3,       // +y
+    6, 5, 4,  7, 6, 4,       // -x
+    8, 9, 10,  8, 10, 11,    // +x
+    14, 13, 12,  15, 14, 12, // -z
+    16, 17, 18,  16, 18, 19, // +z
+    22, 21, 20,  23, 22, 20  // -y
 };
 
 struct render_properties {
     bool wireframe_mode;
+    bool disable_vsync;
 };
 
 struct render {
@@ -122,6 +124,16 @@ void init_render_pipeline(::render *render)
         pipeline_desc.primitive_type = SG_PRIMITIVETYPE_LINE_STRIP;
     } else {
         pipeline_desc.primitive_type = SG_PRIMITIVETYPE_TRIANGLES;
+    }
+    if (render->properties.disable_vsync) {
+        // disable fps cap
+#ifdef SOKOL_GLCORE33 
+        _sapp_glx_swapinterval(0);
+#else
+        fprintf(stderr, "Renderer: Can not disable vsync for this backend\n");
+#endif
+    } else {
+        _sapp_glx_swapinterval(1);
     }
 
     if (render->pip.id == 0) { // init new
@@ -204,23 +216,8 @@ typedef uint8_t cube_side_flags;
 #define CUBE_SIDE_FLAG_PZ 0b10000
 #define CUBE_SIDE_FLAG_NZ 0b100000
 
-void draw_cube(::render *render, hmm_vec3 pos, cube_side_flags flags)
+void draw_cube_flags(::render *render, cube_side_flags flags)
 {
-    if (flags == 0) {
-        return;
-    }
-    hmm_mat4 m_m = HMM_Translate(pos);
-    hmm_mat4 mvp = render->camera.get_vp() * m_m;
-
-    vs_params_t params = {};
-    memcpy(params.mvp, mvp.Elements, sizeof mvp.Elements);
-    auto params_range = SG_RANGE(params);
-
-    // DRAW USER STUFF
-    sg_apply_pipeline(render->pip);
-    sg_apply_bindings(&render->bind);
-    sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
-
     // FIXME(skejeton): this is a shit way to draw it
     if (flags & CUBE_SIDE_FLAG_PY) {
         sg_draw(0, 6, 1);
@@ -240,6 +237,27 @@ void draw_cube(::render *render, hmm_vec3 pos, cube_side_flags flags)
     if (flags & CUBE_SIDE_FLAG_NY) {
         sg_draw(30, 6, 1);
     }
+
+}
+
+void draw_cube(::render *render, hmm_vec3 pos, cube_side_flags flags)
+{
+    if (flags == 0) {
+        return;
+    }
+    hmm_mat4 m_m = HMM_Translate(pos);
+    hmm_mat4 mvp = render->camera.get_vp() * m_m;
+
+    vs_params_t params = {};
+    memcpy(params.mvp, mvp.Elements, sizeof mvp.Elements);
+    auto params_range = SG_RANGE(params);
+
+    // DRAW USER STUFF
+    sg_apply_pipeline(render->pip);
+    sg_apply_bindings(&render->bind);
+    sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
+
+    draw_cube_flags(render, flags);
 }
 
 void handle_camera_input(::render *render, ::input const &input)
@@ -276,6 +294,11 @@ void handle_camera_input(::render *render, ::input const &input)
 
 #define WORLD_SIZE 32
 
+struct chunk {
+    bool data[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE];
+    cube_side_flags mesh_map[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE];
+};
+
 ///////////
 // World 
 struct world {
@@ -290,8 +313,6 @@ struct world {
 // State
 struct state {
     float bg_color[3];
-    char window_title_base[256];
-    char *window_title;
     bool wireframe_mode;
 
     ::render render;
@@ -369,9 +390,25 @@ void generage_world_mesh_map(::world *world)
 
 void draw_world(::render *render, ::world const &world)
 {
+    // DRAW USER STUFF
+    vs_params_t params = {};
+    auto params_range = SG_RANGE(params);
+    sg_apply_pipeline(render->pip);
+    sg_apply_bindings(&render->bind);
+
     WORLD_ITER(x, y, z) {
         if (world.data[x][y][z]) {
-            draw_cube(render, hmm_vec3{float(x), float(y), float(z)}, world.mesh_map[x][y][z]);
+            cube_side_flags flags = world.mesh_map[x][y][z];
+            if (flags == 0) {
+                continue;
+            }
+            hmm_mat4 m_m = HMM_Translate({float(x), float(y), float(z)});
+            hmm_mat4 mvp = render->camera.get_vp() * m_m;
+
+            memcpy(params.mvp, mvp.Elements, sizeof mvp.Elements);
+            sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
+
+            draw_cube_flags(render, flags);
         }
     }
 }
@@ -385,7 +422,6 @@ static void init(void)
     simgui_setup(&simgui_desc);
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     set_rounding(3);
-
 }
 
 static void ui(void)
@@ -412,9 +448,9 @@ static void ui(void)
 
         ImGui::Begin("Debug Stuff");
             ImGui::ColorEdit3("Background color", GLOBAL_state.bg_color);
-            ImGui::InputText("Version", GLOBAL_state.window_title, 256-(GLOBAL_state.window_title-GLOBAL_state.window_title_base));
             ImGui::DragFloat2("Rotation", GLOBAL_state.render.camera.yaw_pitch.Elements);
             ImGui::Checkbox("Wireframe", &GLOBAL_state.render.properties.wireframe_mode);
+            ImGui::Checkbox("Disable VSync", &GLOBAL_state.render.properties.disable_vsync);
 
             static bool show_demo_window = false;
             ImGui::Checkbox("Show demo window", &show_demo_window);
@@ -435,7 +471,7 @@ void frame(void)
 {
     handle_camera(&GLOBAL_state);
     set_bgcolor(&GLOBAL_state.render, GLOBAL_state.bg_color);
-    sapp_set_window_title(GLOBAL_state.window_title_base);
+    sapp_set_window_title("Cave Tropes 0.0.1");
 
     begin_render(&GLOBAL_state.render);
     {
@@ -465,21 +501,15 @@ sapp_desc sokol_main(int argc, char* argv[])
 {
     (void)argc; (void)argv;
     sapp_desc app_desc = {};
-
     app_desc.init_cb = init;
     app_desc.frame_cb = frame;
     app_desc.cleanup_cb = cleanup;
-    app_desc.width = 640;
-    app_desc.height = 480;
+    app_desc.width = 1048;
+    app_desc.height = 768;
     app_desc.gl_force_gles2 = true;
     app_desc.event_cb = event;
     // TODO(skejeton): Re enable sample count to 4 when I optimize world rendering
     // app_desc.sample_count = 4;
-    app_desc.window_title = "Cave Tropes 0.0.0";
-
-    GLOBAL_state.window_title = GLOBAL_state.window_title_base;
-    memcpy(GLOBAL_state.window_title, "Cave Tropes 0.0.0", strlen("Cave Tropes 0.0.0"));
-    GLOBAL_state.window_title += strlen("Cave Tropes ");
 
     app_desc.icon.sokol_default = true;
     app_desc.enable_clipboard = true;
