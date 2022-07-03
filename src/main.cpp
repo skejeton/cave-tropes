@@ -397,32 +397,32 @@ void handle_camera_input(::render *render, ::input const &input)
     camera->rotate(hmm_vec2{input.mouse_delta.Y/4, -input.mouse_delta.X/4});
 
     if (input.key_states[SAPP_KEYCODE_LEFT_SHIFT].held) {
-        camera->move(0, 0, -0.1);
+        camera->move(0, 0, -1);
     }
 
     if (input.key_states[SAPP_KEYCODE_SPACE].held) {
-        camera->move(0, 0, 0.1);
+        camera->move(0, 0, 1);
     }
 
     if (input.key_states[SAPP_KEYCODE_W].held) {
-        camera->move(0.1, 0, 0);
+        camera->move(1, 0, 0);
     }
 
     if (input.key_states[SAPP_KEYCODE_S].held) {
-        camera->move(-0.1, 0, 0);
+        camera->move(-1, 0, 0);
     }
 
     if (input.key_states[SAPP_KEYCODE_A].held) {
-        camera->move(0, 0.1, 0);
+        camera->move(0, 1, 0);
     }
 
     if (input.key_states[SAPP_KEYCODE_D].held) {
-        camera->move(0, -0.1, 0);
+        camera->move(0, -1, 0);
     }
 }
 
 #define CHUNK_SIZE 32
-#define RENDER_DISTANCE 1
+#define RENDER_DISTANCE 6
 
 struct chunk {
     //        x   y   z
@@ -431,10 +431,59 @@ struct chunk {
     bool dirty;
 };
 
+struct vec3i {
+    int x, y, z;
+
+    static vec3i from(hmm_vec3 v) {
+        return {int(v.X), int(v.Y), int(v.Z)};
+    }
+};
+
+vec3i operator%(vec3i v, int val)
+{
+    return {v.x%val, v.y%val, v.z%val};
+}
+
+vec3i operator+(vec3i v, vec3i u)
+{
+    return {v.x+u.x, v.y+u.y, v.z+u.z};
+}
+
+vec3i operator+(vec3i v, int u)
+{
+    return {v.x+u, v.y+u, v.z+u};
+}
+
+vec3i operator-(vec3i v, vec3i u)
+{
+    return {v.x-u.x, v.y-u.y, v.z-u.z};
+}
+
+vec3i operator-(vec3i v, int u)
+{
+    return {v.x-u, v.y-u, v.z-u};
+}
+
+bool operator==(vec3i v, vec3i u)
+{
+    return v.x == u.x && v.y == u.y && v.z == u.z;
+}
+
+bool vec3i_check_bounds(vec3i v, vec3i p1, vec3i p2)
+{
+    return v.x >= p1.x && v.y >= p1.y && v.z >= p1.z && v.x < p2.x && v.y < p2.y && v.z < p2.z;
+}
+
+int vec3i_dot(vec3i v, vec3i u)
+{
+    return v.x*u.x+v.y*u.y+v.z*u.z;
+}
+
 ///////////
 // World 
 struct world {
     ::chunk *chunks[RENDER_DISTANCE][RENDER_DISTANCE][RENDER_DISTANCE];
+    vec3i chunk_offset; 
 };
 
 #define WORLD_ITER(x, y, z) for (int x = 0; x < RENDER_DISTANCE; ++x) for (int y = 0; y < RENDER_DISTANCE; ++y) for (int z = 0; z < RENDER_DISTANCE; ++z)
@@ -453,25 +502,6 @@ struct state {
 };
 
 static ::state GLOBAL_state;
-
-struct vec3i {
-    int x, y, z;
-};
-
-vec3i operator%(vec3i v, int val)
-{
-    return {v.x%val, v.y%val, v.z%val};
-}
-
-vec3i operator+(vec3i v, vec3i u)
-{
-    return {v.x+u.x, v.y+u.y, v.z+u.z};
-}
-
-vec3i operator-(vec3i v, vec3i u)
-{
-    return {v.x-u.x, v.y-u.y, v.z-u.z};
-}
 
 void handle_camera(::state *state)
 {
@@ -535,6 +565,9 @@ void generate_world_mesh_map(::world *world)
     WORLD_ITER(i, j, k) {
         ::chunk *chunk = world->chunks[i][j][k];
         if (chunk && chunk->dirty) {
+            // TODO(skejeton): the dirty bit might be reset somewhere else
+            chunk->dirty = false;
+
             CHUNK_ITER(x, y, z) {
                 chunk->mesh_map[x][y][z] = get_side_flags(world, {x+i*CHUNK_SIZE, y+j*CHUNK_SIZE, z+k*CHUNK_SIZE});
             }
@@ -542,14 +575,14 @@ void generate_world_mesh_map(::world *world)
     }
 }
 
-::chunk generate_chunk(int i, int j, int k)
+::chunk generate_chunk(vec3i chunk)
 {
     ::chunk output = {};
     output.dirty = true;
 
     CHUNK_ITER(x, y, z) {
-        const int y_treshold = sin((x+i*CHUNK_SIZE)/10.0) + cos((z+k*CHUNK_SIZE)/10.0)*3 + 20;
-        if ((y+j*CHUNK_SIZE) <= y_treshold)  {
+        const int y_treshold = sin((x+chunk.x*CHUNK_SIZE)/10.0) + cos((z+chunk.z*CHUNK_SIZE)/10.0)*3 + 20;
+        if ((y+chunk.y*CHUNK_SIZE) <= y_treshold)  {
             output.data[x][y][z] = 1;
         }
     }
@@ -557,18 +590,59 @@ void generate_world_mesh_map(::world *world)
     return output;
 }
 
-::world generate_world()
+void put_world_chunk(::world *world, vec3i relative_chunk_pos, ::chunk *chunk)
 {
-    ::world output = {};
+    if (vec3i_check_bounds(relative_chunk_pos, {0, 0, 0}, {RENDER_DISTANCE, RENDER_DISTANCE, RENDER_DISTANCE})) {
+        world->chunks[relative_chunk_pos.x][relative_chunk_pos.y][relative_chunk_pos.z] = chunk;
+    }
+}
+
+void change_world_chunk_offset(::world *world, vec3i new_chunk_offset)
+{
+    // Avoid waste of time
+    if (world->chunk_offset == new_chunk_offset) {
+        return;
+    }
+
+    vec3i delta = new_chunk_offset-world->chunk_offset;
+
+    decltype(world->chunks) original_chunks;
+    memcpy(original_chunks, world->chunks, sizeof original_chunks);
+
+    // Invalidate chunks
     WORLD_ITER(i, j, k) {
-        // To not regenerate chunk after it's created
-        if (output.chunks[i][j][k] == nullptr) {
-            output.chunks[i][j][k] = (::chunk*)malloc(sizeof(::chunk));
-            *output.chunks[i][j][k] = generate_chunk(i, j, k);
+        world->chunks[i][j][k] = nullptr;
+    }
+
+    // Move chunks
+    WORLD_ITER(i, j, k) {
+        put_world_chunk(world, vec3i{i, j, k} - delta, original_chunks[i][j][k]);
+    }
+
+    world->chunk_offset = new_chunk_offset;
+}
+
+void change_world_chunk_offset_relative_to_camera(::world *world, camera *cam)
+{
+    change_world_chunk_offset(world, vec3i::from(cam->position/CHUNK_SIZE));
+} 
+
+void generate_world(::world *world)
+{
+    WORLD_ITER(i, j, k) {
+        vec3i chunk_pos = vec3i{i, j, k} - (RENDER_DISTANCE/2) + world->chunk_offset;
+        vec3i sphere_coords = vec3i{i, j, k} - (RENDER_DISTANCE/2);
+
+        // Only generate chunks in sphere
+        if (vec3i_dot(sphere_coords, sphere_coords) < RENDER_DISTANCE/2*RENDER_DISTANCE/2) {
+            // To not regenerate chunk after it's created
+            if (world->chunks[i][j][k] == nullptr) {
+                world->chunks[i][j][k] = (::chunk*)malloc(sizeof(::chunk));
+                *world->chunks[i][j][k] = generate_chunk(chunk_pos);
+            }
         }
     }
-    generate_world_mesh_map(&output);
-    return output;
+    generate_world_mesh_map(world);
 }
 
 
@@ -586,6 +660,8 @@ void draw_world(::render *render, ::cube_mesh_cache *cube_mesh_cache, ::world co
 
     WORLD_ITER(i, j, k) {
         ::chunk const *chunk = world.chunks[i][j][k];
+        vec3i chunk_pos = vec3i{i, j, k} - (RENDER_DISTANCE/2) + world.chunk_offset;
+
         if (chunk) {
             CHUNK_ITER(x, y, z) {
                 if (chunk->data[x][y][z]) {
@@ -593,7 +669,10 @@ void draw_world(::render *render, ::cube_mesh_cache *cube_mesh_cache, ::world co
                     if (flags == 0) {
                         continue;
                     }
-                    hmm_mat4 m_m = HMM_Translate({float(x+i*CHUNK_SIZE), float(y+j*CHUNK_SIZE), float(z+k*CHUNK_SIZE)});
+                    if (flags > 0b111111) {
+                        fprintf(stderr, "INVALID FLAGS!\n");
+                    }
+                    hmm_mat4 m_m = HMM_Translate({float(x+chunk_pos.x*CHUNK_SIZE), float(y+chunk_pos.y*CHUNK_SIZE), float(z+chunk_pos.z*CHUNK_SIZE)});
                     hmm_mat4 mvp = render->camera.get_vp() * m_m;
 
                     memcpy(params.mvp, mvp.Elements, sizeof mvp.Elements);
@@ -610,7 +689,6 @@ void draw_world(::render *render, ::cube_mesh_cache *cube_mesh_cache, ::world co
 static void init(void)
 {
     GLOBAL_state.render = init_render();
-    GLOBAL_state.world = generate_world();
     GLOBAL_state.cube_mesh_cache = init_cube_mesh_cache(&GLOBAL_state.render);
 
     simgui_desc_t simgui_desc = { };
@@ -667,6 +745,8 @@ void frame(void)
     handle_camera(&GLOBAL_state);
     set_bgcolor(&GLOBAL_state.render, GLOBAL_state.bg_color);
     sapp_set_window_title("Cave Tropes 0.0.1");
+    change_world_chunk_offset_relative_to_camera(&GLOBAL_state.world, &GLOBAL_state.render.camera);
+    generate_world(&GLOBAL_state.world);
 
     begin_render(&GLOBAL_state.render);
     {
