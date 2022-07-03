@@ -1,11 +1,11 @@
-CXX?=clang++
-AR?=llvm-ar
+CXX=clang++
+AR=llvm-ar
 SHDC?=./lib/sokol-tools-bin/bin/linux/sokol-shdc
 OUTPUT?=bin/cave_tropes
 IMGUI_OUTPUT?=bin/imgui.a
 SYS_LIBS?=-lGL -lXi -lXcursor -lasound -ldl -lm -lpthread -lX11
 
-SHARED_CFLAGS=-O0 --std=c++17
+SHARED_CFLAGS=-O0 -g
 
 SRC_CFLAGS=-I. -MD
 SRC_LIBS=$(SYS_LIBS) $(IMGUI_OUTPUT)
@@ -21,7 +21,7 @@ run: all
 
 $(IMGUI_OUTPUT):
 	$(CXX) $(SHARED_CFLAGS) lib/imgui/*.cpp -c 
-	$(AR) rcs -o $(IMGUI_OUTPUT) *.o
+	$(AR) -rcs $(IMGUI_OUTPUT) *.o
 	rm *.o
 
 bin/shaders.h: res/shaders.glsl

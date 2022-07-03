@@ -10,7 +10,7 @@ static hmm_mat4 make_vp(camera *camera)
 {
     hmm_vec4 eye = rotation_matrix(camera) * hmm_vec4{0.0f, 0.0f, 1.0f, 1.0f};
     hmm_mat4 view = HMM_LookAt(camera->position, camera->position + eye.XYZ, {0.0f, 1.0f, 0.0f});
-    hmm_mat4 proj = HMM_Perspective(camera->fov_deg, camera->aspect, 0.1f, 100.0f);
+    hmm_mat4 proj = HMM_Perspective(camera->fov_deg, camera->aspect, 0.1f, 1000.0f);
 
     return proj * view;
 }

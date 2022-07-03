@@ -1,6 +1,7 @@
 // SPDX: MIT
 #include <cstdint>
 #include <cstdlib>
+#include <strings.h>
 #define SOKOL_IMPL
 #if defined(_MSC_VER)
 #define SOKOL_D3D11
@@ -95,6 +96,143 @@ struct render {
     ::camera camera;
 };
 
+struct combined_buffer_gpu {
+    sg_buffer vertices;
+    sg_buffer indices;
+    size_t index_count;
+};
+
+struct combined_buffer {
+    size_t stride;
+    size_t vertex_count;
+    size_t index_count;
+    float *vertices;
+    uint16_t *indices;
+};
+
+::combined_buffer init_combined_buffer_malloc(size_t stride, size_t vertex_count, size_t index_count)
+{
+    return (::combined_buffer){stride, 0, 0, (float*)malloc((vertex_count * stride) * sizeof(float)), (uint16_t*)malloc(index_count * sizeof(uint16_t))};
+}
+
+// deinits combined buffer that was allocated with malloc
+void deinit_combined_buffer_malloc(::combined_buffer *buffer)
+{
+    free(buffer->vertices);
+    free(buffer->indices);
+}
+
+::combined_buffer_gpu make_gpu_combined_buffer(::combined_buffer const *buffer, ::render *render)
+{
+    assert(buffer->index_count > 0 && buffer->vertex_count > 0);
+    sg_buffer_desc index_buffer = {};
+    index_buffer.data = sg_range{buffer->indices, buffer->index_count * sizeof *buffer->indices};
+    index_buffer.type = SG_BUFFERTYPE_INDEXBUFFER;
+    index_buffer.label = "cube-indices";
+
+    sg_buffer_desc vertex_buffer = {};
+    vertex_buffer.data = sg_range{buffer->vertices, buffer->vertex_count * buffer->stride * sizeof *buffer->vertices};
+    vertex_buffer.label = "cube-vertices";
+
+    printf("Creating GPU Buffer: i/%zu v/%zu\n", buffer->index_count, buffer->vertex_count);
+
+    return {sg_make_buffer(&vertex_buffer), sg_make_buffer(&index_buffer), buffer->index_count};
+}
+
+// Flags for choosing sides of cube to display
+typedef uint8_t cube_side_flags;
+#define CUBE_SIDE_FLAG_PX 0b1
+#define CUBE_SIDE_FLAG_NX 0b10
+#define CUBE_SIDE_FLAG_PY 0b100
+#define CUBE_SIDE_FLAG_NY 0b1000
+#define CUBE_SIDE_FLAG_PZ 0b10000
+#define CUBE_SIDE_FLAG_NZ 0b100000
+
+struct cube_mesh_cache {
+    combined_buffer_gpu buffer;
+    size_t index_offsets[64];
+    size_t index_sizes[64];
+};
+
+/**
+ * @brief      Appends a cube quad to combined buffer.
+ *
+ * @param      buffer   The combined buffer
+ * @param[in]  quad_no  The quad number (check the vertex buffer constant above)
+ */
+void append_cube_quad_to_combined_buffer(::combined_buffer *buffer, size_t quad_no)
+{
+    // assert that the vertex buffer is trivially copyable
+    assert(buffer->stride == 8);
+    assert(buffer->index_count % 6 == 0);
+
+    const size_t
+        output_vertex_offset = buffer->vertex_count * buffer->stride,
+        output_index_offset = buffer->index_count,
+        output_quad_no = buffer->index_count / 6,
+        input_vertex_offset = quad_no * 4 * buffer->stride,
+        input_index_offset = quad_no * 6;
+
+    memcpy(buffer->vertices + output_vertex_offset, cube_vertices + input_vertex_offset, buffer->stride * sizeof(float) * 4);
+    memcpy(buffer->indices + output_index_offset, cube_indices + input_index_offset, sizeof(uint16_t) * 6);
+
+    for (size_t i = output_index_offset; i < output_index_offset+6; ++i) {
+        buffer->indices[i] -= quad_no * 4; // transform to relative
+        buffer->indices[i] += output_quad_no * 4; // transform to absolute in output buffer
+    }
+
+    buffer->index_count += 6;
+    buffer->vertex_count += 4;
+}
+
+/**
+ * @brief      Initializes the cube mesh cache with each permutation of a cube in it.
+ *
+ * @return     The cache
+ */
+::cube_mesh_cache init_cube_mesh_cache(::render *render)
+{
+    ::cube_mesh_cache output = {};
+    ::combined_buffer buffer = init_combined_buffer_malloc(8, 4*64*6, 6*64*6);
+
+    for (cube_side_flags flags = 1; flags < 64; ++flags) {
+        size_t start_index_offset = buffer.index_count;
+
+        if (flags & CUBE_SIDE_FLAG_PY) {
+            append_cube_quad_to_combined_buffer(&buffer, 0);
+        }
+        if (flags & CUBE_SIDE_FLAG_NX) {
+            append_cube_quad_to_combined_buffer(&buffer, 1);
+        }
+        if (flags & CUBE_SIDE_FLAG_PX) {
+            append_cube_quad_to_combined_buffer(&buffer, 2);
+        }
+        if (flags & CUBE_SIDE_FLAG_PZ) {
+            append_cube_quad_to_combined_buffer(&buffer, 3);
+        }
+        if (flags & CUBE_SIDE_FLAG_NZ) {
+            append_cube_quad_to_combined_buffer(&buffer, 4);
+        }
+        if (flags & CUBE_SIDE_FLAG_NY) {
+            append_cube_quad_to_combined_buffer(&buffer, 5);
+        }
+
+        output.index_offsets[flags] = start_index_offset;
+        output.index_sizes[flags] = buffer.index_count-start_index_offset;
+    }
+
+    output.buffer = make_gpu_combined_buffer(&buffer, render);
+
+    return output;
+}
+
+void uninit_cube_mesh_cache(::cube_mesh_cache *cmc) 
+{
+    // FIXME(skejeton): I should ideally move destruction code to operate on the gpu combined buffer itself
+    sg_destroy_buffer(cmc->buffer.indices);
+    sg_destroy_buffer(cmc->buffer.vertices);
+}
+
 static void set_rounding(float rounding)
 {
     ImGui::GetStyle().TabRounding = rounding;
@@ -130,7 +268,7 @@ void init_render_pipeline(::render *render)
 #ifdef SOKOL_GLCORE33 
         _sapp_glx_swapinterval(0);
 #else
-        fprintf(stderr, "Renderer: Can not disable vsync for this backend\n");
+        fprintf(stderr, "Renderer: SORRY! Can not disable vsync for this backend\n");
 #endif
     } else {
         _sapp_glx_swapinterval(1);
@@ -206,15 +344,6 @@ void set_bgcolor(::render *render, float color[3])
 {
     render->pass_action.colors[0].value = sg_color{color[0], color[1], color[2], 1.0};
 }
-
-// Flags for choosing sides of cube to display
-typedef uint8_t cube_side_flags;
-#define CUBE_SIDE_FLAG_PX 0b1
-#define CUBE_SIDE_FLAG_NX 0b10
-#define CUBE_SIDE_FLAG_PY 0b100
-#define CUBE_SIDE_FLAG_NY 0b1000
-#define CUBE_SIDE_FLAG_PZ 0b10000
-#define CUBE_SIDE_FLAG_NZ 0b100000
 
 void draw_cube_flags(::render *render, cube_side_flags flags)
 {
@@ -292,22 +421,24 @@ void handle_camera_input(::render *render, ::input const &input)
     }
 }
 
-#define WORLD_SIZE 32
+#define CHUNK_SIZE 32
+#define RENDER_DISTANCE 1
 
 struct chunk {
-    bool data[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE];
-    cube_side_flags mesh_map[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE];
+    //        x   y   z
+    bool data[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE]; // true = block set, false = no block
+    cube_side_flags mesh_map[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
+    bool dirty;
 };
 
 ///////////
 // World 
 struct world {
-    //        x   y   z
-    bool data[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE]; // world chunk 0, true = block set, false = no block
-    cube_side_flags mesh_map[WORLD_SIZE][WORLD_SIZE][WORLD_SIZE];
+    ::chunk *chunks[RENDER_DISTANCE][RENDER_DISTANCE][RENDER_DISTANCE];
 };
 
-#define WORLD_ITER(x, y, z) for (int x = 0; x < WORLD_SIZE; ++x) for (int y = 0; y < WORLD_SIZE; ++y) for (int z = 0; z < WORLD_SIZE; ++z)
+#define WORLD_ITER(x, y, z) for (int x = 0; x < RENDER_DISTANCE; ++x) for (int y = 0; y < RENDER_DISTANCE; ++y) for (int z = 0; z < RENDER_DISTANCE; ++z)
+#define CHUNK_ITER(x, y, z) for (int x = 0; x < CHUNK_SIZE; ++x) for (int y = 0; y < CHUNK_SIZE; ++y) for (int z = 0; z < CHUNK_SIZE; ++z)
 
 ///////////
 // State
@@ -318,9 +449,29 @@ struct state {
     ::render render;
     ::input input;
     ::world world;
+    ::cube_mesh_cache cube_mesh_cache;
 };
 
 static ::state GLOBAL_state;
+
+struct vec3i {
+    int x, y, z;
+};
+
+vec3i operator%(vec3i v, int val)
+{
+    return {v.x%val, v.y%val, v.z%val};
+}
+
+vec3i operator+(vec3i v, vec3i u)
+{
+    return {v.x+u.x, v.y+u.y, v.z+u.z};
+}
+
+vec3i operator-(vec3i v, vec3i u)
+{
+    return {v.x-u.x, v.y-u.y, v.z-u.z};
+}
 
 void handle_camera(::state *state)
 {
@@ -339,56 +490,89 @@ void handle_camera(::state *state)
     state->render.camera.rotate({0, 0});
 }
 
-static bool check_block(::world const *world, int x, int y, int z)
+static bool check_block_chunk(::chunk const *chunk, vec3i pos)
 {
-    if (x < 0 || y < 0 || z < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE || z >= WORLD_SIZE) {
+    // FIXME(skejeton): hack
+    if (pos.x < 0 || pos.y < 0 || pos.z < 0) {
         return false;
     }
-
-    return world->data[x][y][z];
+    return chunk->data[pos.x][pos.y][pos.z];
 }
 
+static ::chunk* get_world_chunk(::world const *world, vec3i pos)
+{
+    if (pos.x < 0 || pos.y < 0 || pos.z < 0 || pos.x >= RENDER_DISTANCE*CHUNK_SIZE || pos.y >= RENDER_DISTANCE*CHUNK_SIZE || pos.z >= RENDER_DISTANCE*CHUNK_SIZE) {
+        return nullptr;
+    }
+    return world->chunks[pos.x/CHUNK_SIZE][pos.y/CHUNK_SIZE][pos.z/CHUNK_SIZE];
+}
 
-static cube_side_flags get_side_flags(::world const *world, int x, int y, int z)
+static bool check_block(::world const *world, vec3i pos)
+{
+    ::chunk *chunk = get_world_chunk(world, pos);
+    if (chunk) {
+        return check_block_chunk(chunk, pos%CHUNK_SIZE);
+    }
+    return false;
+}
+
+static cube_side_flags get_side_flags(::world const *world, vec3i pos)
 {
     cube_side_flags output = 0;
-    struct {
-        int x, y, z;
-    } const static neighbours[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    const static vec3i neighbours[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
     int i = 0;
     for (auto neighbor : neighbours) {
-        output = output | ((cube_side_flags)(!check_block(world, x+neighbor.x, y+neighbor.y, z+neighbor.z)) << i);
+        output = output | ((cube_side_flags)(!check_block(world, pos+neighbor)) << i);
         i++;
     }
 
     return output;
 }
 
-void generage_world_mesh_map(::world *world) 
+void generate_world_mesh_map(::world *world) 
 {
-    WORLD_ITER(x, y, z) {
-        world->mesh_map[x][y][z] = get_side_flags(world, x, y, z);
+    WORLD_ITER(i, j, k) {
+        ::chunk *chunk = world->chunks[i][j][k];
+        if (chunk && chunk->dirty) {
+            CHUNK_ITER(x, y, z) {
+                chunk->mesh_map[x][y][z] = get_side_flags(world, {x+i*CHUNK_SIZE, y+j*CHUNK_SIZE, z+k*CHUNK_SIZE});
+            }
+        }
     }
+}
+
+::chunk generate_chunk(int i, int j, int k)
+{
+    ::chunk output = {};
+    output.dirty = true;
+
+    CHUNK_ITER(x, y, z) {
+        const int y_treshold = sin((x+i*CHUNK_SIZE)/10.0) + cos((z+k*CHUNK_SIZE)/10.0)*3 + 20;
+        if ((y+j*CHUNK_SIZE) <= y_treshold)  {
+            output.data[x][y][z] = 1;
+        }
+    }
+
+    return output;
 }
 
 ::world generate_world()
 {
     ::world output = {};
-
-    WORLD_ITER(x, y, z) {
-        const int y_treshold = sin(x/10.0)*3 + cos(z/10.0)*3 + 20;
-        if (y <= y_treshold)  {
-            output.data[x][y][z] = 1;
+    WORLD_ITER(i, j, k) {
+        // To not regenerate chunk after it's created
+        if (output.chunks[i][j][k] == nullptr) {
+            output.chunks[i][j][k] = (::chunk*)malloc(sizeof(::chunk));
+            *output.chunks[i][j][k] = generate_chunk(i, j, k);
         }
     }
-
-    generage_world_mesh_map(&output);
+    generate_world_mesh_map(&output);
     return output;
 }
 
 
-void draw_world(::render *render, ::world const &world)
+void draw_world(::render *render, ::cube_mesh_cache *cube_mesh_cache, ::world const &world)
 {
     // DRAW USER STUFF
     vs_params_t params = {};
@@ -396,19 +580,29 @@ void draw_world(::render *render, ::world const &world)
     sg_apply_pipeline(render->pip);
     sg_apply_bindings(&render->bind);
 
-    WORLD_ITER(x, y, z) {
-        if (world.data[x][y][z]) {
-            cube_side_flags flags = world.mesh_map[x][y][z];
-            if (flags == 0) {
-                continue;
+    // FIXME(skejeton): I should move it somewhere else
+    render->bind.index_buffer = cube_mesh_cache->buffer.indices;
+    render->bind.vertex_buffers[0] = cube_mesh_cache->buffer.vertices;
+
+    WORLD_ITER(i, j, k) {
+        ::chunk const *chunk = world.chunks[i][j][k];
+        if (chunk) {
+            CHUNK_ITER(x, y, z) {
+                if (chunk->data[x][y][z]) {
+                    cube_side_flags flags = chunk->mesh_map[x][y][z];
+                    if (flags == 0) {
+                        continue;
+                    }
+                    hmm_mat4 m_m = HMM_Translate({float(x+i*CHUNK_SIZE), float(y+j*CHUNK_SIZE), float(z+k*CHUNK_SIZE)});
+                    hmm_mat4 mvp = render->camera.get_vp() * m_m;
+
+                    memcpy(params.mvp, mvp.Elements, sizeof mvp.Elements);
+                    sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
+
+
+                    sg_draw(cube_mesh_cache->index_offsets[flags], cube_mesh_cache->index_sizes[flags], 1);
+                }
             }
-            hmm_mat4 m_m = HMM_Translate({float(x), float(y), float(z)});
-            hmm_mat4 mvp = render->camera.get_vp() * m_m;
-
-            memcpy(params.mvp, mvp.Elements, sizeof mvp.Elements);
-            sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, &params_range);
-
-            draw_cube_flags(render, flags);
         }
     }
 }
@@ -417,6 +611,7 @@ static void init(void)
 {
     GLOBAL_state.render = init_render();
     GLOBAL_state.world = generate_world();
+    GLOBAL_state.cube_mesh_cache = init_cube_mesh_cache(&GLOBAL_state.render);
 
     simgui_desc_t simgui_desc = { };
     simgui_setup(&simgui_desc);
@@ -475,7 +670,7 @@ void frame(void)
 
     begin_render(&GLOBAL_state.render);
     {
-        draw_world(&GLOBAL_state.render, GLOBAL_state.world);
+        draw_world(&GLOBAL_state.render, &GLOBAL_state.cube_mesh_cache, GLOBAL_state.world);
         ui();
     }
     end_render(&GLOBAL_state.render);

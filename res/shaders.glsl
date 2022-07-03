@@ -19,7 +19,7 @@ void main() {
 in vec2 fs_uv;
 in vec3 fs_normal;
 out vec4 frag_color;
-const float fog_distance = 10.0;
+const float fog_distance = 48.0;
 const float ambient = 0.5;
 const vec3 light = vec3(0.1, 1.0, 0.3);
 
