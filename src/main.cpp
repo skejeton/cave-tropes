@@ -464,6 +464,16 @@ vec3i operator-(vec3i v, int u)
     return {v.x-u, v.y-u, v.z-u};
 }
 
+vec3i operator*(vec3i v, int u)
+{
+    return {v.x*u, v.y*u, v.z*u};
+}
+
+vec3i operator*(vec3i v, vec3i u)
+{
+    return {v.x*u.x, v.y*u.y, v.z*u.z};
+}
+
 bool operator==(vec3i v, vec3i u)
 {
     return v.x == u.x && v.y == u.y && v.z == u.z;
@@ -581,8 +591,9 @@ void generate_world_mesh_map(::world *world)
     output.dirty = true;
 
     CHUNK_ITER(x, y, z) {
-        const int y_treshold = sin((x+chunk.x*CHUNK_SIZE)/10.0) + cos((z+chunk.z*CHUNK_SIZE)/10.0)*3 + 20;
-        if ((y+chunk.y*CHUNK_SIZE) <= y_treshold)  {
+        vec3i block_pos = chunk * CHUNK_SIZE + vec3i{x, y, z}; 
+
+        if (block_pos == vec3i{0, 0, 0}) {
             output.data[x][y][z] = 1;
         }
     }

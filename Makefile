@@ -5,7 +5,7 @@ OUTPUT?=bin/cave_tropes
 IMGUI_OUTPUT?=bin/imgui.a
 SYS_LIBS?=-lGL -lXi -lXcursor -lasound -ldl -lm -lpthread -lX11
 
-SHARED_CFLAGS=-O0 -g
+SHARED_CFLAGS=-O3 -g
 
 SRC_CFLAGS=-I. -MD
 SRC_LIBS=$(SYS_LIBS) $(IMGUI_OUTPUT)
